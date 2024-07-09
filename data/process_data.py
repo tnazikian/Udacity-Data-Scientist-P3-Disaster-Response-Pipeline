@@ -2,12 +2,34 @@ import sys
 import pandas as pd
 from sqlalchemy import create_engine
 
+"""
+load_data
+Loads disaster message data from csv files provided by Figure8 and 
+stores in pandas dataframe.
+
+Input:
+messages_filepath    File path for disaster_message.csv file
+categories_filepath  File path for disaster_categories.csv file
+
+Output:
+df    Pandas df containing merged data from both the message and categories files
+"""
 def load_data(messages_filepath, categories_filepath):
     messages = pd.read_csv(messages_filepath)
     categories = pd.read_csv(categories_filepath)
     df = pd.merge(messages, categories, on='id')
     return df
 
+"""
+clean_data
+Cleans merged dataframe from the csv files
+
+Input:
+df    Pandas Dataframe containing merged data from both csv files
+
+Output:
+df    Dataframe with cleaned/new data
+"""
 def clean_data(df):
     # create a dataframe of the 36 individual category columns
     categories = df['categories'].str.split(';', expand=True)
@@ -36,13 +58,23 @@ def clean_data(df):
     
     # drop duplicates
     df.drop_duplicates(inplace=True)
+
+    # Drop any rows where the category value is not binary (0, 1)
+    for column in categories:
+        df = df[df[column].isin([0, 1])]
     
     return df
 
+"""
+save_data
+Saves a dataframe to the specified target filename as a sqlite db file
+
+Input:
+df    Pandas Dataframe containing merged/cleaned data
+"""
 def save_data(df, database_filename):
     engine = create_engine("sqlite:///" + database_filename)
     df.to_sql('DisasterResponse', engine, index=False, if_exists='replace')
-
 
 def main():
     if len(sys.argv) == 4:

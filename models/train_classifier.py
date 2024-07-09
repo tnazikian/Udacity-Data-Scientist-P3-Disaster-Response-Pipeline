@@ -5,6 +5,8 @@ import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer
 from sqlalchemy import create_engine
 import re
+import nltk
+nltk.download('wordnet')
 from nltk.stem import WordNetLemmatizer
 from nltk.collocations import BigramCollocationFinder
 from sklearn.pipeline import Pipeline, FeatureUnion
@@ -20,6 +22,18 @@ from nltk import download
 from sqlalchemy import create_engine
 import pickle
 
+"""
+load_data
+Loads data from a sqlite db and stores in a pandas dataframe.
+
+Input:
+database_filepath    sqlite database file path
+
+Output:
+X    Numpy array containing the message text of all the messages in the db
+Y    Numpy array containing the labels for each message
+categories    List of all 36 known labels
+"""
 def load_data(database_filepath):
     categories = ['related', 'request', 'offer', 'aid_related', 'medical_help',
        'medical_products', 'search_and_rescue', 'security', 'military',
@@ -37,6 +51,16 @@ def load_data(database_filepath):
     Y = cat_values
     return X, Y, categories
 
+"""
+tokenize
+Preprocessing step for tokenizing a text message
+
+Input:
+text    The whole text message as a string.
+
+Output:
+lem     List of cleaned words
+"""
 def tokenize(text):
     # Make it lower
     text = text.lower().strip()
@@ -48,6 +72,16 @@ def tokenize(text):
     lem = [lemmatizer.lemmatize(word) for word in words]
     return lem
 
+"""
+tokenize
+Preprocessing step for tokenizing a text message with Bigrams method
+
+Input:
+text    The whole text message as a string.
+
+Output:
+lem     List of original tokens + bigram pairs separated by a space
+"""
 def tokenize_with_bigrams(text):
     # Tokenize the text into individual words
     tokens = tokenize(text)
@@ -63,30 +97,71 @@ def tokenize_with_bigrams(text):
 
     return combined_tokens
 
-def build_model():
-    return Pipeline([
-    ('FeatureUnion', FeatureUnion([
-        ('etl_union', Pipeline([
-            ('count_vectorizer', CountVectorizer(tokenizer=tokenize)),
-            ('tfidf_transformer', TfidfTransformer())
-        ])),
-        ('bigram_pipe', Pipeline([
-            ('bigram_tfidf', TfidfVectorizer(tokenizer=tokenize_with_bigrams))
-        ]))
-    ])),
-    ('clf', MultiOutputClassifier(RandomForestClassifier()))
-])
+"""
+build_model
+Defines the pipeline for preprocessing and classifying data 
+and finds the optimal params for the classifier
 
+Output:
+GridsearchCV object containing the preprocessing + classification steps
+"""
+def build_model():
+    param_grid = {
+        'FeatureUnion__etl_union__count_vectorizer__max_df': [0.5, 0.75, 1.0],
+        'FeatureUnion__etl_union__count_vectorizer__min_df': [1, 2, 3],
+        'FeatureUnion__etl_union__count_vectorizer__max_features': [None, 5000, 10000],
+        
+        'FeatureUnion__bigram_pipe__bigram_tfidf__max_df': [0.5, 0.75, 1.0],
+        'FeatureUnion__bigram_pipe__bigram_tfidf__min_df': [1, 2, 3],
+        'FeatureUnion__bigram_pipe__bigram_tfidf__max_features': [None, 5000, 10000],
+        
+        'clf__estimator__n_estimators': [100, 200, 300],
+        'clf__estimator__max_depth': [None, 10, 20]
+    }
+    
+    pipe = Pipeline([
+        ('FeatureUnion', FeatureUnion([
+            ('etl_union', Pipeline([
+                ('count_vectorizer', CountVectorizer(tokenizer=tokenize)),
+                ('tfidf_transformer', TfidfTransformer())
+            ])),
+            ('bigram_pipe', Pipeline([
+                ('bigram_tfidf', TfidfVectorizer(tokenizer=tokenize_with_bigrams))
+            ]))
+        ])),
+      ('clf', MultiOutputClassifier(RandomForestClassifier()))
+    ])
+
+    grid_search = GridSearchCV(pipe, param_grid, cv=5)
+    return grid_search
+
+"""
+evaluate_model
+Displays performance evaluation metrics for a fitted model on test data
+
+Input: 
+model    A sklearn model (pipeline) fitted to training data 
+X_test   Numpy array of text messages
+Y_test   Numpy array of text message labels
+category_names    List containing all 36 possible labels 
+"""
 def evaluate_model(model, X_test, Y_test, category_names):
     y_prediction_test = model.predict(X_test)
     df_pred = pd.DataFrame(Y_test, columns=category_names)
     for col in category_names: 
         print(classification_report(Y_test[col], df_pred[col]))
 
+"""
+save_model
+Exports a fitted model to a pickle file.
+
+Input: 
+model    A sklearn model (pipeline) fitted to training data 
+model_filepath   Target file path for the pickle file
+"""
 def save_model(model, model_filepath):
     with open(model_filepath, 'wb') as file:
         pickle.dump(model, file)
-
 
 def main():
     if len(sys.argv) == 3:
